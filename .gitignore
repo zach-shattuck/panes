@@ -1,0 +1,15 @@
+.DS_Store
+/.build
+/Packages
+xcuserdata/
+DerivedData/
+.swiftpm/
+.netrc
+
+# Built app bundle, release archive, and local signing material
+/Panes.app
+/Panes.zip
+*.keychain
+*.keychain-db
+*.p12
+*.cer
