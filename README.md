@@ -27,12 +27,15 @@ Every shortcut can be changed in Settings, and there's a reset button for each o
 With Homebrew:
 
 ```sh
-brew install --cask --no-quarantine zach-shattuck/panes/panes
+brew install --cask zach-shattuck/panes/panes
 ```
 
-The `--no-quarantine` flag matters here. Panes is signed for local use but not notarized by Apple, and without that flag macOS flags any un-notarized app the first time you open it. The flag tells Homebrew to skip that.
+Panes is signed for local use but not notarized by Apple, so the first time you open it macOS will say it can't verify the developer. You clear that once, whichever you prefer:
 
-Prefer to download it directly? Grab the latest build from the [Releases](https://github.com/zach-shattuck/panes/releases) page and drag Panes into your Applications folder. The first time you open it, macOS will say it can't verify the developer. Open System Settings, go to Privacy and Security, scroll down, and click Open Anyway. You only do that once.
+- Open System Settings, go to Privacy and Security, scroll down, and click Open Anyway, or
+- run `xattr -dr com.apple.quarantine /Applications/Panes.app` once in Terminal.
+
+Prefer to download it directly? Grab the latest build from the [Releases](https://github.com/zach-shattuck/panes/releases) page, drag Panes into your Applications folder, and do the same one-time step above.
 
 If you would rather not trust a stranger's binary at all, building it yourself (below) sidesteps the whole thing.
 
