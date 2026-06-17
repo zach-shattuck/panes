@@ -63,7 +63,7 @@ I'll be straight about this: I build Panes with AI coding tools. I'm not going t
 
 ## Support
 
-Panes is free, and nothing is locked behind a paywall. If it earns a spot on your Mac and you want to throw a few dollars my way, you can do that here: [SUPPORT_LINK]. No pressure either way.
+Panes is free, and nothing is locked behind a paywall. If it earns a spot on your Mac and you want to throw a few dollars my way, you can do that here: [paypal.biz/zachsoftworks](https://www.paypal.biz/zachsoftworks). No pressure either way.
 
 ## License
 

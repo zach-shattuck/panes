@@ -26,10 +26,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private static let textWidth: CGFloat = 420
     private static let cardInset: CGFloat = 0
 
-    /// Where the "Support Panes" button goes. Replace with your real link
-    /// (GitHub Sponsors, Ko-fi, PayPal, etc.) before publishing. While it still
-    /// contains the placeholder, the Support section stays hidden.
-    private static let supportURL = "https://github.com/sponsors/YOUR_GITHUB_USERNAME"
+    /// Where the "Support Panes" button goes (the PayPal business profile).
+    private static let supportURL = "https://www.paypal.biz/zachsoftworks"
 
     init(registry: ModuleRegistry, chrome: AppChrome) {
         self.registry = registry
@@ -234,17 +232,15 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             isOn: chrome.hiddenFromMenuBar
         ) { [weak self] on in self?.chrome.setHiddenFromMenuBar(on) })
 
-        if !Self.supportURL.contains("YOUR_GITHUB_USERNAME") {
-            addDetail(spacer(12))
-            addDetail(sectionLabel("Support"))
-            addDetail(wrappingLabel(
-                "Panes is free and nothing is locked behind a paywall. If it earns a spot on your Mac, you can chip in. No pressure.",
-                size: 11.5, color: .secondaryLabelColor
-            ))
-            addDetail(ClosureButton(title: "Support Panes") {
-                if let url = URL(string: Self.supportURL) { NSWorkspace.shared.open(url) }
-            })
-        }
+        addDetail(spacer(12))
+        addDetail(sectionLabel("Support"))
+        addDetail(wrappingLabel(
+            "Panes is free and nothing is locked behind a paywall. If it earns a spot on your Mac, you can chip in. No pressure.",
+            size: 11.5, color: .secondaryLabelColor
+        ))
+        addDetail(ClosureButton(title: "Support Panes") {
+            if let url = URL(string: Self.supportURL) { NSWorkspace.shared.open(url) }
+        })
     }
 
     /// A toggle row for an app-level setting (not tied to a feature module).
