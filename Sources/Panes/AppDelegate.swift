@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: StatusItemController!
     private var settings: SettingsWindowController!
     private var chrome: AppChrome!
+    private var welcome: WelcomeWindowController!
 
     private static let hasLaunchedKey = "app.hasLaunchedBefore"
 
@@ -61,13 +62,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         chrome.apply()
         registry.syncRunningState()
 
-        // First launch: open the guide so features and permissions are
-        // discoverable, instead of firing a bare system prompt with no
-        // context. Returning users get a quiet re-request to reconnect any
-        // module whose permission was revoked.
+        // First launch: show the welcome note, then "Get Started" opens the
+        // guide so features and permissions are discoverable. Returning users
+        // get a quiet re-request to reconnect any module whose permission was
+        // revoked.
         if !context.preferences.bool(forKey: Self.hasLaunchedKey, default: false) {
             context.preferences.set(true, forKey: Self.hasLaunchedKey)
-            settings.show()
+            let welcome = WelcomeWindowController { [weak self] in self?.settings.show() }
+            self.welcome = welcome
+            welcome.show()
         } else if let permission = registry.missingPermissionsForEnabledModules()
             .sorted(by: { $0.rawValue < $1.rawValue }).first {
             context.permissions.request(permission)
