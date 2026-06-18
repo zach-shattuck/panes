@@ -27,8 +27,11 @@ Every shortcut can be changed in Settings, and there's a reset button for each o
 With Homebrew:
 
 ```sh
-brew install --cask zach-shattuck/panes/panes
+brew tap zach-shattuck/panes
+brew install --cask panes
 ```
+
+The `tap` line just points Homebrew at this project once. After that, `panes` is all you need.
 
 Panes is signed for local use but not notarized by Apple, so the first time you open it macOS will say it can't verify the developer. You clear that once, whichever you prefer:
 
