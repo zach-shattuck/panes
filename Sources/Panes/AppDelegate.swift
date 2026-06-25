@@ -10,6 +10,7 @@ import FinderCutPaste
 import AeroShake
 import AltTabSwitcher
 import WindowToDisplay
+import DockNumberSwitch
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var context: ModuleContext!
@@ -43,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registry.register(AeroShakeModule())
         registry.register(AltTabSwitcherModule())
         registry.register(WindowToDisplayModule())
+        registry.register(DockNumberSwitchModule())
         self.registry = registry
 
         let statusItem = StatusItemController(registry: registry) { [weak self] in

@@ -38,6 +38,7 @@ let package = Package(
         .target(name: "AeroShake", dependencies: ["PanesCore"], swiftSettings: moduleSettings),
         .target(name: "AltTabSwitcher", dependencies: ["PanesCore"], swiftSettings: moduleSettings),
         .target(name: "WindowToDisplay", dependencies: ["PanesCore"], swiftSettings: moduleSettings),
+        .target(name: "DockNumberSwitch", dependencies: ["PanesCore"], swiftSettings: moduleSettings),
         .executableTarget(
             name: "Panes",
             dependencies: [
@@ -52,6 +53,7 @@ let package = Package(
                 "AeroShake",
                 "AltTabSwitcher",
                 "WindowToDisplay",
+                "DockNumberSwitch",
             ],
             swiftSettings: moduleSettings
         ),
