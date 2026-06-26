@@ -7,42 +7,47 @@ import os
 ///  - click an app whose windows are all minimized -> restore them
 ///  - anything else -> let the Dock do its native thing
 ///
-/// Click vs. drag: we must NOT swallow the mouse-PRESS, or the Dock can never
-/// start a drag and reordering icons breaks (the press turns into a click).
-/// So we let the press through, remember it, and act on the mouse-UP — and only
-/// if the cursor barely moved (a real click). If it moved, it was a drag (icon
-/// reorder or removal) and we stay out of the way entirely.
+/// We never consume Dock mouse events. We only OBSERVE them and perform the
+/// minimize/restore ourselves. Consuming caused two bugs: swallowing the press
+/// broke dragging icons to reorder, and swallowing the release left the Dock
+/// thinking the button was still held (no matching up), which it then treated
+/// as a press-and-hold and opened the icon's context menu (a phantom
+/// "right-click"). Observing-only leaves clicks, drags, and the long-press menu
+/// all behaving natively.
 ///
-/// Acting on the up (not the down) also means the Dock's native click handler
-/// fires on the same up, so for the cases we handle we CONSUME the up to
-/// suppress it. The tap is shared via EventTapHub.
+/// A "click" here is a press and release that is both QUICK and nearly
+/// stationary. A press that moves is a drag (reorder/remove); a press that's
+/// held is a long-press for the context menu — we act on neither.
 ///
-/// Hot-path discipline: this sits in the delivery path of every left click, so
-/// the not-in-dock exit is a couple of cached-rect compares; AX work happens
-/// only for a stationary click physically inside the Dock.
+/// Hot-path discipline: this sees every left click, so the not-in-dock exit is
+/// a couple of cached-rect compares; AX work happens only for a real click
+/// physically inside the Dock.
 public final class DockClickModule: FeatureModule {
     public let metadata = ModuleMetadata(
         id: "dock-click-minimize",
         displayName: "Click Dock Icon to Minimize",
         category: "Dock",
         summary: "Click the Dock icon of the app you're using to minimize it, then click the same icon again to bring it back.",
-        howToUse: "Click the Dock icon of the app you're currently using and its windows minimize. Click the same icon again to bring them back. Dragging icons to rearrange your Dock still works as normal.",
+        howToUse: "Click the Dock icon of the app you're currently using and its windows minimize. Click the same icon again to bring them back. Dragging icons to rearrange your Dock works as normal.",
         requiredPermissions: [.accessibility]
     )
 
-    /// A press on a Dock app icon, pending its release to decide click vs drag.
-    private struct PendingClick {
+    /// A press on a Dock app icon, pending its release to decide click vs drag
+    /// vs long-press.
+    private struct PendingPress {
         let downPoint: CGPoint
+        let at: ContinuousClock.Instant
         let pid: pid_t
         let app: NSRunningApplication
         let frontmost: Bool
     }
 
-    /// How far the cursor may move between press and release and still count as
-    /// a click rather than a drag.
+    /// A click may move at most this far and be held at most this long; beyond
+    /// either it's a drag or a long-press, which we leave to the Dock.
     private static let clickSlop: CGFloat = 6
+    private static let maxClickDuration: Duration = .milliseconds(500)
 
-    private var pending: PendingClick?
+    private var pending: PendingPress?
     private var tapToken: EventTapHub.Token?
     private weak var eventTaps: EventTapHub?
     private var dock: DockModel?
@@ -56,11 +61,12 @@ public final class DockClickModule: FeatureModule {
     public func start(context: ModuleContext) {
         dock = context.dock
         eventTaps = context.eventTaps
+        // Observe only (wantsConsume: false) — never alter the Dock's events.
         tapToken = context.eventTaps.subscribe(
-            to: [.leftMouseDown, .leftMouseUp],
-            wantsConsume: true
+            to: [.leftMouseDown, .leftMouseUp]
         ) { [weak self] type, event in
-            self?.handle(type, event) ?? .pass
+            self?.handle(type, event)
+            return .pass
         }
     }
 
@@ -72,24 +78,23 @@ public final class DockClickModule: FeatureModule {
         restoreLedger.removeAll()
     }
 
-    private func handle(_ type: CGEventType, _ event: CGEvent) -> EventTapHub.Verdict {
+    private func handle(_ type: CGEventType, _ event: CGEvent) {
         switch type {
         case .leftMouseDown:
             pending = recordPress(event)
-            return .pass // never swallow the press, so the Dock can start a drag
         case .leftMouseUp:
-            return handleRelease(event)
+            handleRelease(event)
         default:
-            return .pass
+            break
         }
     }
 
     /// Note a press on a Dock app icon (or nil if it's not one we'd act on).
-    private func recordPress(_ event: CGEvent) -> PendingClick? {
+    private func recordPress(_ event: CGEvent) -> PendingPress? {
         guard let dock else { return nil }
 
-        // A Dock preview is steering a window selection by scroll — let its
-        // click commit the highlighted window instead of minimizing here.
+        // A Dock preview is steering a window selection by scroll — leave the
+        // click to it.
         guard !dock.suppressClickMinimize else { return nil }
 
         // Modifier clicks keep native semantics (Cmd-click reveals in Finder,
@@ -111,43 +116,41 @@ public final class DockClickModule: FeatureModule {
         else { return nil }
 
         let pid = app.processIdentifier
-        return PendingClick(
+        return PendingPress(
             downPoint: point,
+            at: ContinuousClock.now,
             pid: pid,
             app: app,
             frontmost: NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
         )
     }
 
-    private func handleRelease(_ event: CGEvent) -> EventTapHub.Verdict {
-        guard let press = pending else { return .pass }
+    private func handleRelease(_ event: CGEvent) {
+        guard let press = pending else { return }
         pending = nil
 
-        // A drag (reorder / remove) moves the cursor; only a near-stationary
-        // press-release is a click.
+        // Drag (reorder/remove) moves the cursor; long-press (context menu) is
+        // held. A click is neither.
         let up = event.location
         let moved = abs(up.x - press.downPoint.x) + abs(up.y - press.downPoint.y)
-        guard moved <= Self.clickSlop else { return .pass }
+        guard moved <= Self.clickSlop, ContinuousClock.now - press.at <= Self.maxClickDuration else { return }
 
         if press.frontmost {
-            // The active app's icon: minimize its visible windows (or restore if
-            // they're all hidden). Decide consume now; do the AX work off the
-            // hot path so a slow app can't stall the click.
+            // The active app's icon: clicking it does nothing natively, so we
+            // just minimize (or restore if its windows are already hidden).
             performToggle(pid: press.pid, app: press.app)
-            return .consume
+            return
         }
 
-        // Non-frontmost: only intercept the "all windows minimized -> restore"
-        // case. Time-bounded so a wedged app can't stall the release; otherwise
-        // let the Dock do its native thing.
+        // Non-frontmost: only handle the "all windows minimized -> restore"
+        // case. Time-bounded so a wedged app can't stall us.
         let windows = AXWindow.windows(of: press.pid, timeout: 0.25).filter(\.isStandard)
-        guard !windows.isEmpty, windows.allSatisfy(\.isMinimized) else { return .pass }
+        guard !windows.isEmpty, windows.allSatisfy(\.isMinimized) else { return }
         performToggle(pid: press.pid, app: press.app)
-        return .consume
     }
 
-    /// Off the event hot path (next runloop): re-read the app's windows and
-    /// minimize the visible ones, or restore if they're all hidden.
+    /// Off the event path: re-read the app's windows and minimize the visible
+    /// ones, or restore if they're all hidden.
     private func performToggle(pid: pid_t, app: NSRunningApplication) {
         Task { [weak self] in
             guard let self else { return }
