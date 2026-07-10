@@ -59,6 +59,10 @@ final class CascadePanel {
     private var expanded = false
     private var axisUp = true
     private var focusIndex: Int?
+    /// Which cards' tracking areas currently report the cursor inside them.
+    /// Overlapping cards both fire, so we focus the FRONTMOST (lowest index) —
+    /// see `cardHover`.
+    private var cardsUnderCursor: Set<Int> = []
     private var anchor: NSRect = .zero
     private var edge: DockModel.Edge = .bottom
     private var screenFrame: NSRect = .zero
@@ -108,6 +112,7 @@ final class CascadePanel {
         panel.orderOut(nil)
         expanded = false
         focusIndex = nil
+        cardsUnderCursor.removeAll()
     }
 
     /// Scroll-to-pick selection: fan the stack open (scrolling is itself an
@@ -320,6 +325,7 @@ final class CascadePanel {
         waterfallTask?.cancel()
         expanded = true
         focusIndex = 0
+        cardsUnderCursor.removeAll()
         button.setChevron(up: !axisUp) // now points back toward the Dock (collapse)
         setFocusHighlight(0)
 
@@ -405,6 +411,7 @@ final class CascadePanel {
         waterfallTask?.cancel()
         expanded = false
         focusIndex = nil
+        cardsUnderCursor.removeAll()
         button.setChevron(up: axisUp)
         setFocusHighlight(nil)
         applyLayout(animated: true)
@@ -445,14 +452,19 @@ final class CascadePanel {
             }
             return
         }
-        guard inside, focusIndex != index else { return }
+        if inside { cardsUnderCursor.insert(index) } else { cardsUnderCursor.remove(index) }
         // Ignore stray hovers while the cascade is still falling into place, so
         // the button sliding out from under the cursor can't interrupt it.
         if isWaterfalling { return }
-        focusIndex = index
-        // Layout is static, so a scrub only raises and lifts the focused card —
-        // nothing else moves.
-        setFocusHighlight(index)
+        // Overlapping cards both report the cursor inside, so focus the
+        // FRONTMOST one under it (newest = index 0 = on top). This keeps focus
+        // on the card whose visible strip you're pointing at, and — crucially —
+        // keeps its traffic-light buttons on top so you can click them, instead
+        // of a card behind stealing the hover and covering them.
+        let target = cardsUnderCursor.min()
+        guard target != focusIndex else { return }
+        focusIndex = target
+        setFocusHighlight(target)
     }
 
     private func setFocusHighlight(_ index: Int?) {

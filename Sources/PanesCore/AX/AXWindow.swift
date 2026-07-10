@@ -1,11 +1,22 @@
 import AppKit
 import ApplicationServices
+import os
 
 /// A window of (usually) another application, manipulated via Accessibility.
 @MainActor
 public struct AXWindow {
     public let element: AXElement
     public let pid: pid_t
+
+    /// Every window mutation Panes performs is logged here at `.notice` (which
+    /// persists), so any "who minimized my windows?" incident can be traced to
+    /// the exact action and time via:
+    ///   log show --predicate 'subsystem == "dev.panes.app" AND category == "window-actions"' --last 20m
+    private static let actionLog = Logger.panes("window-actions")
+
+    private func appName() -> String {
+        NSRunningApplication(processIdentifier: pid)?.localizedName ?? "pid \(pid)"
+    }
 
     public init(element: AXElement, pid: pid_t) {
         self.element = element
@@ -70,12 +81,14 @@ public struct AXWindow {
     /// display, so moving across displays needs the size re-applied after
     /// the position lands on the destination screen.
     public func setFrame(_ rect: CGRect) {
+        Self.actionLog.notice("move \(self.appName(), privacy: .public) to \(Int(rect.minX))·\(Int(rect.minY)) \(Int(rect.width))×\(Int(rect.height))")
         element.set(kAXSizeAttribute, size: rect.size)
         element.set(kAXPositionAttribute, point: rect.origin)
         element.set(kAXSizeAttribute, size: rect.size)
     }
 
     public func setMinimized(_ minimized: Bool) {
+        Self.actionLog.notice("\(minimized ? "MINIMIZE" : "unminimize", privacy: .public) \(self.appName(), privacy: .public)")
         element.set(kAXMinimizedAttribute, bool: minimized)
     }
 
@@ -88,6 +101,7 @@ public struct AXWindow {
     }
 
     public func toggleFullScreen() {
+        Self.actionLog.notice("toggleFullScreen \(self.appName(), privacy: .public)")
         element.set(Self.fullScreenAttribute, bool: !isFullScreen)
     }
 
@@ -96,12 +110,14 @@ public struct AXWindow {
     /// three are needed — activation alone may front a different window of
     /// that app, AXRaise alone only reorders within the app.
     public func raise() {
+        Self.actionLog.notice("RAISE/activate \(self.appName(), privacy: .public)")
         NSRunningApplication(processIdentifier: pid)?.activate()
         element.perform(kAXRaiseAction)
         element.set(kAXMainAttribute, bool: true)
     }
 
     public func close() {
+        Self.actionLog.notice("CLOSE \(self.appName(), privacy: .public)")
         element.element(kAXCloseButtonAttribute)?.perform(kAXPressAction)
     }
 }

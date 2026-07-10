@@ -48,7 +48,8 @@ public final class DockClickModule: FeatureModule {
     private static let maxClickDuration: Duration = .milliseconds(500)
 
     private var pending: PendingPress?
-    private var tapToken: EventTapHub.Token?
+    private var downToken: EventTapHub.Token?
+    private var upToken: EventTapHub.Token?
     private weak var eventTaps: EventTapHub?
     private var dock: DockModel?
     /// Windows we minimized per pid, so restore brings back exactly what the
@@ -61,32 +62,38 @@ public final class DockClickModule: FeatureModule {
     public func start(context: ModuleContext) {
         dock = context.dock
         eventTaps = context.eventTaps
-        // Observe only (wantsConsume: false) — never alter the Dock's events.
-        tapToken = context.eventTaps.subscribe(
-            to: [.leftMouseDown, .leftMouseUp]
-        ) { [weak self] type, event in
-            self?.handle(type, event)
+        // The PRESS rides the consuming tap (wantsConsume: true) purely for
+        // SYNCHRONOUS delivery — the tap sees the event before the Dock does, so
+        // we read the frontmost app BEFORE the Dock activates the clicked icon.
+        // Without this, clicking a background app to bring it forward would look
+        // "already frontmost" and we'd wrongly minimize it. We still never
+        // consume (always .pass), so clicks, drags, and the menu stay native.
+        downToken = context.eventTaps.subscribe(
+            to: [.leftMouseDown],
+            wantsConsume: true
+        ) { [weak self] _, event in
+            guard let self else { return .pass }
+            self.pending = self.recordPress(event)
+            return .pass
+        }
+        // The RELEASE only acts (the decision was made at press), so its timing
+        // doesn't matter — keep it observe-only off the consuming tap.
+        upToken = context.eventTaps.subscribe(
+            to: [.leftMouseUp]
+        ) { [weak self] _, event in
+            self?.handleRelease(event)
             return .pass
         }
     }
 
     public func stop() {
-        if let token = tapToken { eventTaps?.unsubscribe(token) }
-        tapToken = nil
+        if let token = downToken { eventTaps?.unsubscribe(token) }
+        if let token = upToken { eventTaps?.unsubscribe(token) }
+        downToken = nil
+        upToken = nil
         pending = nil
         dock = nil
         restoreLedger.removeAll()
-    }
-
-    private func handle(_ type: CGEventType, _ event: CGEvent) {
-        switch type {
-        case .leftMouseDown:
-            pending = recordPress(event)
-        case .leftMouseUp:
-            handleRelease(event)
-        default:
-            break
-        }
     }
 
     /// Note a press on a Dock app icon (or nil if it's not one we'd act on).

@@ -19,10 +19,12 @@ public final class AeroShakeModule: FeatureModule {
         requiredPermissions: [.accessibility]
     )
 
-    // Reversal detector tuning.
-    private static let minStep: CGFloat = 6        // ignore jitter below this
-    private static let reversalsToTrigger = 4      // direction flips…
-    private static let windowSeconds = 1.0         // …within this long
+    // Reversal detector tuning. Deliberately hard to trigger by accident: each
+    // swing must be a real movement and it takes several fast reversals, so a
+    // sloppy drag can't minimize all your windows.
+    private static let minStep: CGFloat = 24       // ignore anything smaller than a real swing
+    private static let reversalsToTrigger = 6      // direction flips…
+    private static let windowSeconds = 1.2         // …within this long
     private static let dragThreshold: CGFloat = 8
 
     private enum DragState {
@@ -144,16 +146,42 @@ public final class AeroShakeModule: FeatureModule {
             return
         }
 
+        // Only touch windows on the CURRENT Space. Minimizing a window on
+        // another Desktop yanks you over to that Desktop — a nasty surprise.
+        let onScreen = onScreenFrames()
         var minimized: [AXWindow] = []
         for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
             if app.processIdentifier == dragged.pid { continue }
             for window in AXWindow.windows(of: app.processIdentifier)
             where window.isStandard && !window.isMinimized {
+                guard isOnCurrentSpace(window, onScreen: onScreen) else { continue }
                 window.setMinimized(true)
                 minimized.append(window)
             }
         }
         log.debug("aero shake: minimized \(minimized.count) windows")
         minimizedByShake = minimized
+    }
+
+    /// PIDs mapped to the frames of their windows currently on screen, i.e. on
+    /// the current Space. CGWindowList is public and needs no permission.
+    private func onScreenFrames() -> [pid_t: [CGRect]] {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [:] }
+        var frames: [pid_t: [CGRect]] = [:]
+        for info in list {
+            guard let pid = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+                  let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else { continue }
+            frames[pid, default: []].append(bounds)
+        }
+        return frames
+    }
+
+    /// Whether an AX window matches an on-screen window of the same app (so it's
+    /// on the current Space), by pid and top-left position.
+    private func isOnCurrentSpace(_ window: AXWindow, onScreen: [pid_t: [CGRect]]) -> Bool {
+        guard let frame = window.frame, let candidates = onScreen[window.pid] else { return false }
+        return candidates.contains { abs($0.minX - frame.minX) < 12 && abs($0.minY - frame.minY) < 12 }
     }
 }
