@@ -168,7 +168,7 @@ public final class DockPreviewsModule: FeatureModule {
     /// Route a surface's per-window actions back through the module's handlers.
     private func wire(_ surface: any PreviewSurface) {
         surface.onSelect = { [weak self] thumbnail in self?.raise(thumbnail) }
-        surface.onClose = { [weak self] thumbnail in self?.act(on: thumbnail) { $0.close() } }
+        surface.onClose = { [weak self] thumbnail in self?.closeWindow(thumbnail) }
         surface.onMinimize = { [weak self] thumbnail in self?.minimize(thumbnail) }
         surface.onFullScreen = { [weak self] thumbnail in self?.fullScreen(thumbnail) }
     }
@@ -343,11 +343,28 @@ public final class DockPreviewsModule: FeatureModule {
         hideNow()
     }
 
-    private func act(on thumbnail: WindowThumbnailService.Thumbnail, _ action: (AXWindow) -> Void) {
-        guard let ax = thumbnail.axWindow else { return }
-        action(ax)
+    /// The time of the last close/minimize/full-screen from a preview button.
+    private var lastCardActionAt: ContinuousClock.Instant?
+
+    /// Guard destructive preview-button actions against rapid repeats — mouse
+    /// chatter, or a reload sliding another button under the cursor — so one
+    /// stray press can't destroy several windows.
+    private func allowCardAction() -> Bool {
+        let now = ContinuousClock.now
+        if let last = lastCardActionAt, now - last < .milliseconds(500) { return false }
+        lastCardActionAt = now
+        return true
+    }
+
+    private func closeWindow(_ thumbnail: WindowThumbnailService.Thumbnail) {
+        guard allowCardAction(), let ax = thumbnail.axWindow else { return }
+        ax.close()
         thumbnailService?.invalidate()
-        loadAndShow()
+        // Dismiss the preview after a close rather than reloading in place: a
+        // reload slides the next window's close button under the cursor, so a
+        // stray or repeated click would walk down the stack closing everything
+        // (which loses browser tabs). Re-hover to close another.
+        hideNow()
     }
 
     private enum MinimizeAction { case thisWindow, allWindows, mostRecent, hideApp }
@@ -364,6 +381,7 @@ public final class DockPreviewsModule: FeatureModule {
     /// Minimize per the chosen setting: just the clicked window, every window
     /// of the app at once, or only the frontmost (most recent) one.
     private func minimize(_ thumbnail: WindowThumbnailService.Thumbnail) {
+        guard allowCardAction() else { return }
         switch minimizeAction() {
         case .thisWindow:
             thumbnail.axWindow?.setMinimized(true)
@@ -390,6 +408,7 @@ public final class DockPreviewsModule: FeatureModule {
     }
 
     private func fullScreen(_ thumbnail: WindowThumbnailService.Thumbnail) {
+        guard allowCardAction() else { return }
         thumbnail.axWindow?.toggleFullScreen()
         hideNow() // full-screen moves the window to its own Space; dismiss.
     }

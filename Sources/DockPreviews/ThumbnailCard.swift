@@ -248,6 +248,17 @@ final class TrafficLight: NSView {
 
     override func mouseEntered(with event: NSEvent) { glyph.isHidden = false }
     override func mouseExited(with event: NSEvent) { glyph.isHidden = true }
-    override func mouseDown(with event: NSEvent) { /* swallow so the card doesn't raise */ }
-    override func mouseUp(with event: NSEvent) { onClick() }
+
+    private var armed = false
+
+    // Fire only on a genuine press-and-release ON this button. A drag that
+    // merely ends here (its press landed elsewhere), or a click that started
+    // off the button, must not close a window. Swallowing the down also stops
+    // the card underneath from raising.
+    override func mouseDown(with event: NSEvent) { armed = true }
+    override func mouseUp(with event: NSEvent) {
+        defer { armed = false }
+        let inside = bounds.contains(convert(event.locationInWindow, from: nil))
+        if armed, inside { onClick() }
+    }
 }
