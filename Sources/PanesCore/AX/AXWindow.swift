@@ -89,7 +89,15 @@ public struct AXWindow {
 
     public func setMinimized(_ minimized: Bool) {
         Self.actionLog.notice("\(minimized ? "MINIMIZE" : "unminimize", privacy: .public) \(self.appName(), privacy: .public)")
-        element.set(kAXMinimizedAttribute, bool: minimized)
+        if minimized, let button = element.element(kAXMinimizeButtonAttribute) {
+            // Press the actual minimize button. Some apps (Chromium browsers
+            // like Edge and Chrome) silently ignore the minimized attribute
+            // setter but do respond to the button. Restoring still uses the
+            // attribute, since a minimized window has no button to press.
+            button.perform(kAXPressAction)
+        } else {
+            element.set(kAXMinimizedAttribute, bool: minimized)
+        }
     }
 
     /// macOS native full-screen. "AXFullScreen" is a settable attribute on

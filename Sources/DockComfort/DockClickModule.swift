@@ -115,21 +115,15 @@ public final class DockClickModule: FeatureModule {
         guard let dockFrame = dock.dockFrame(),
               dockFrame.insetBy(dx: -64, dy: -96).contains(point) else { return nil }
 
-        guard
-            let item = dock.item(atCGPoint: point),
-            item.isApplication,
-            item.isRunning,
-            let app = dock.runningApplication(for: item)
-        else { return nil }
+        guard let item = dock.item(atCGPoint: point), item.isApplication else { return nil }
+        guard item.isRunning, let app = dock.runningApplication(for: item) else {
+            log.notice("dock: app icon '\(item.title ?? "?", privacy: .public)' clicked but not resolved to a running app (running=\(item.isRunning, privacy: .public))")
+            return nil
+        }
 
         let pid = app.processIdentifier
-        return PendingPress(
-            downPoint: point,
-            at: ContinuousClock.now,
-            pid: pid,
-            app: app,
-            frontmost: NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
-        )
+        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+        return PendingPress(downPoint: point, at: ContinuousClock.now, pid: pid, app: app, frontmost: frontmost)
     }
 
     private func handleRelease(_ event: CGEvent) {
@@ -140,11 +134,17 @@ public final class DockClickModule: FeatureModule {
         // held. A click is neither.
         let up = event.location
         let moved = abs(up.x - press.downPoint.x) + abs(up.y - press.downPoint.y)
-        guard moved <= Self.clickSlop, ContinuousClock.now - press.at <= Self.maxClickDuration else { return }
+        let name = press.app.localizedName ?? "pid \(press.pid)"
+        let held = ContinuousClock.now - press.at
+        guard moved <= Self.clickSlop, held <= Self.maxClickDuration else {
+            log.notice("dock release: \(name, privacy: .public) IGNORED as drag/hold (moved=\(Int(moved), privacy: .public)pt, held=\("\(held)", privacy: .public))")
+            return
+        }
 
         if press.frontmost {
             // The active app's icon: clicking it does nothing natively, so we
             // just minimize (or restore if its windows are already hidden).
+            log.notice("dock release: \(name, privacy: .public) → MINIMIZE (was frontmost)")
             performToggle(pid: press.pid, app: press.app)
             return
         }
@@ -152,7 +152,11 @@ public final class DockClickModule: FeatureModule {
         // Non-frontmost: only handle the "all windows minimized -> restore"
         // case. Time-bounded so a wedged app can't stall us.
         let windows = AXWindow.windows(of: press.pid, timeout: 0.25).filter(\.isStandard)
-        guard !windows.isEmpty, windows.allSatisfy(\.isMinimized) else { return }
+        guard !windows.isEmpty, windows.allSatisfy(\.isMinimized) else {
+            log.notice("dock release: \(name, privacy: .public) → Dock brings it forward (not frontmost; \(windows.count, privacy: .public) windows, not all minimized)")
+            return
+        }
+        log.notice("dock release: \(name, privacy: .public) → RESTORE (all were minimized)")
         performToggle(pid: press.pid, app: press.app)
     }
 
